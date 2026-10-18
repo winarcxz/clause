@@ -1,0 +1,29 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next
+/out
+
+# testing
+/coverage
+/playwright-report
+/test-results
+
+# local environment
+.env
+.env.local
+.env.*.local
+
+# deployment
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+/src/generated/prisma
+
+# logs and operating system files
+*.log
+.DS_Store
+Thumbs.db

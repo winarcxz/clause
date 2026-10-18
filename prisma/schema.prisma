@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MandateStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  EXPIRED
+}
+
+enum AccountingAssetKind {
+  NATIVE
+  ERC20
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ActionType {
+  NATIVE_TRANSFER
+  ERC20_TRANSFER
+  CONTRACT_CALL
+  UNSUPPORTED
+}
+
+enum ProposalStatus {
+  PROPOSED
+  REJECTED
+  VALIDATED
+  SIMULATED
+  APPROVED
+  CANCELLED
+  EXPIRED
+  EXECUTING
+  SUCCEEDED
+  FAILED
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  UNKNOWN
+}
+
+enum AuditActor {
+  USER
+  AI
+  SYSTEM
+  KEEPERHUB
+}
+
+enum AuditEventType {
+  INTENT_CREATED
+  INTENT_UNSUPPORTED
+  VALIDATION_PASSED
+  VALIDATION_FAILED
+  SIMULATION_SUCCEEDED
+  SIMULATION_FAILED
+  APPROVED
+  CANCELLED
+  EXPIRED
+  EXECUTION_STARTED
+  EXECUTION_SUCCEEDED
+  EXECUTION_FAILED
+  EXECUTION_RECONCILED
+  MANDATE_CREATED
+  MANDATE_UPDATED
+  MANDATE_PAUSED
+  AI_PAUSED
+  AI_RESUMED
+}
+
+model User {
+  id         String    @id @default(cuid())
+  clerkId    String    @unique
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  wallets    Wallet[]
+  mandates   Mandate[]
+  chats      Chat[]
+  proposals  ActionProposal[]
+  executions Execution[]
+  auditEvents AuditEvent[]
+  settings   Settings?
+
+  @@index([deletedAt])
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String
+  address   String
+  chainId   Int?
+  label     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address])
+  @@index([userId, isPrimary])
+}
+
+model Mandate {
+  id                        String              @id @default(cuid())
+  userId                    String
+  name                      String
+  description               String?
+  status                    MandateStatus       @default(DRAFT)
+  accountingAssetKind       AccountingAssetKind
+  accountingChainId         Int
+  accountingTokenAddress    String?
+  accountingTokenSymbol     String
+  accountingTokenDecimals   Int
+  maxTransactionBaseUnits   String?
+  dailyLimitBaseUnits       String?
+  monthlyLimitBaseUnits     String?
+  allowedChainIds           Int[]
+  allowedTokens             String[]
+  allowedProtocols          String[]
+  allowedRecipients         String[]
+  allowedCategories         String[]
+  allowedContractAddresses  String[]
+  requireManualApproval     Boolean             @default(true)
+  expiresAt                 DateTime?
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposals ActionProposal[]
+
+  @@index([userId, status])
+  @@index([userId, updatedAt])
+}
+
+model Chat {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  proposals ActionProposal[]
+
+  @@index([userId, updatedAt])
+}
+
+model Message {
+  id               String      @id @default(cuid())
+  chatId           String
+  role             MessageRole
+  content          String
+  providerModel    String?
+  providerRequestId String?
+  createdAt        DateTime    @default(now())
+
+  chat     Chat            @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  proposal ActionProposal?
+
+  @@index([chatId, createdAt])
+}
+
+model ActionProposal {
+  id                    String         @id @default(cuid())
+  userId                String
+  chatId                String
+  mandateId             String?
+  assistantMessageId    String?        @unique
+  actionType            ActionType
+  status                ProposalStatus @default(PROPOSED)
+  actionJson            Json?
+  explanation           String
+  unsupportedAction     String?
+  mandateSnapshot       Json?
+  canonicalPayload      Json?
+  payloadHash           String?
+  approvalExpiresAt     DateTime?
+  approvedAt            DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chat             Chat            @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  mandate          Mandate?        @relation(fields: [mandateId], references: [id], onDelete: SetNull)
+  assistantMessage Message?        @relation(fields: [assistantMessageId], references: [id], onDelete: SetNull)
+  checks           MandateCheck[]
+  simulation       Simulation?
+  execution        Execution?
+  auditEvents      AuditEvent[]
+
+  @@index([userId, status])
+  @@index([chatId, createdAt])
+  @@index([mandateId, createdAt])
+}
+
+model MandateCheck {
+  id         String   @id @default(cuid())
+  proposalId String
+  code       String
+  label      String
+  passed     Boolean
+  detail     String
+  evidence   Json
+  createdAt  DateTime @default(now())
+
+  proposal ActionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, code])
+  @@index([proposalId, passed])
+}
+
+model Simulation {
+  id                   String   @id @default(cuid())
+  proposalId           String   @unique
+  requestPayload       Json
+  responsePayload      Json
+  requestHash          String
+  fromAddress          String
+  targetAddress        String
+  valueWei             String
+  gasEstimate          String
+  simulatedReturnValue Json?
+  wouldRevert          Boolean
+  createdAt            DateTime @default(now())
+
+  proposal ActionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+}
+
+model Execution {
+  id                   String          @id @default(cuid())
+  userId               String
+  proposalId           String          @unique
+  keeperHubExecutionId String?         @unique
+  idempotencyKey       String          @unique
+  status               ExecutionStatus @default(PENDING)
+  transactionHash      String?
+  transactionLink      String?
+  gasUsedWei           String?
+  resultJson           Json?
+  errorCode            String?
+  errorMessage         String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposal    ActionProposal   @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  auditEvents AuditEvent[]
+
+  @@index([userId, createdAt])
+  @@index([status, updatedAt])
+}
+
+model AuditEvent {
+  id          String         @id @default(cuid())
+  userId      String
+  proposalId  String?
+  executionId String?
+  type        AuditEventType
+  actor       AuditActor
+  correlationId String
+  metadata    Json
+  createdAt   DateTime       @default(now())
+
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposal  ActionProposal? @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  execution Execution?      @relation(fields: [executionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([proposalId, createdAt])
+  @@index([executionId, createdAt])
+  @@index([correlationId])
+}
+
+model Settings {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  aiPaused          Boolean  @default(false)
+  theme             String   @default("system")
+  defaultMandateId  String?
+  preferredChainId  Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
